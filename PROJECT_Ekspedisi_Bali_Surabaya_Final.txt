@@ -1,0 +1,1430 @@
+# PROJECT HANDOVER
+# SISTEM MANAJEMEN EKSPEDISI CARGO BALI ↔ SURABAYA
+
+**Versi:** 3.0 — Revisi Arsitektur dan Keputusan Bisnis Terbaru  
+**Status:** Working Specification  
+**Tujuan:** Menjadi sumber acuan utama untuk analisis, perancangan ERD, pengembangan, dan pengujian sistem.
+
+---
+
+# 1. PROFIL DAN TUJUAN PROYEK
+
+Proyek ini bertujuan membangun sistem informasi manajemen ekspedisi cargo untuk operasional perusahaan dengan rute utama:
+
+- Bali → Surabaya.
+- Surabaya → Bali.
+
+Sistem menggunakan pendekatan **warehouse-to-warehouse**. Barang diterima di gudang asal, diproses, dimuat ke kendaraan, dikirim ke gudang tujuan, diperiksa kembali, kemudian diserahkan kepada penerima.
+
+Sistem harus mengintegrasikan:
+
+1. Transaksi pengiriman.
+2. Data pengirim dan penerima.
+3. Nomor resi dan barcode.
+4. Pengelompokan fisik barang menggunakan Koli secara opsional.
+5. Penerimaan dan perpindahan barang di gudang.
+6. Loading dan unloading.
+7. Trip dan Manifest.
+8. Kendaraan dan driver.
+9. Dokumentasi perjalanan.
+10. Tracking resi.
+11. Serah terima barang.
+12. Pencatatan pendapatan.
+13. Koreksi pendapatan oleh Finance.
+14. Uang keberangkatan perjalanan.
+15. Dashboard dan laporan.
+16. Website publik.
+17. Pengaturan pengguna dan hak akses.
+18. Audit trail, keamanan, backup, dan recovery.
+
+Sistem harus dirancang untuk kebutuhan operasional nyata, bukan sekadar aplikasi CRUD.
+
+**Prinsip utama:**
+- Setiap resi harus dapat ditelusuri.
+- Setiap pergerakan fisik harus tercatat.
+- Muatan Manifest harus sesuai dengan barang yang benar-benar dimuat.
+- Data historis tidak boleh hilang akibat perubahan status.
+- Hak akses harus dibatasi di backend.
+- Business logic tidak boleh dibuat berdasarkan asumsi yang belum disetujui.
+
+---
+
+# 2. SUMBER KEBENARAN DAN PRIORITAS KEPUTUSAN
+
+Gunakan urutan prioritas berikut:
+
+1. Keputusan terbaru yang secara eksplisit disetujui pengguna.
+2. Dokumen PROJECT HANDOVER versi terbaru.
+3. Keputusan yang telah disepakati pada pembahasan sebelumnya dan belum digantikan.
+4. Rekomendasi teknis AI.
+
+Rekomendasi teknis AI bukan keputusan bisnis sampai disetujui pengguna.
+
+Setiap spesifikasi harus dibedakan menjadi:
+
+- **FINAL:** Keputusan bisnis yang sudah disetujui.
+- **TECHNICAL RECOMMENDATION:** Rekomendasi desain teknis yang masih perlu persetujuan jika mengubah perilaku bisnis.
+- **PENDING DECISION:** Hal yang belum diputuskan.
+- **OUT OF MVP:** Fitur yang tidak termasuk ruang lingkup MVP.
+
+Jika ada konflik antarbagian dokumen:
+- Jangan memilih salah satu secara diam-diam.
+- Identifikasi konflik.
+- Gunakan keputusan terbaru yang telah disetujui.
+- Jelaskan bagian lama yang digantikan.
+
+Jangan menanyakan ulang keputusan yang sudah final.
+
+---
+
+# 3. KEPUTUSAN BISNIS FINAL
+
+| Komponen | Keputusan |
+|---|---|
+| Jenis usaha | Ekspedisi cargo |
+| Rute | Bali ↔ Surabaya |
+| Sistem operasional | Warehouse-to-warehouse |
+| Transaksi | Dibuat admin internal |
+| Customer frontend | Website publik untuk estimasi dan tracking |
+| Identitas pengiriman | Shipment/Resi |
+| Unit tracking | Satu Shipment/Resi individual |
+| Koli | Opsional, sebagai wadah fisik yang mengelompokkan beberapa resi |
+| Manifest | Satu Manifest = satu Trip = satu truk |
+| Driver Manifest | Satu primary driver |
+| Jenis harga awal | Harga Customer dan Harga B2B |
+| Nominal transaksi | Diinput manual oleh admin |
+| Finance | Pendapatan transaksi dan koreksi pendapatan |
+| TripExpense | Uang keberangkatan lump-sum |
+| Piutang | Tidak termasuk MVP |
+| Pembayaran parsial | Tidak termasuk MVP |
+| Mesin tarif internal | Tidak termasuk MVP |
+| Database | Neon PostgreSQL |
+| Framework | Next.js App Router |
+| ORM | Prisma |
+| Deployment | Vercel |
+| Version control | GitHub |
+
+---
+
+# 4. ARSITEKTUR APLIKASI DAN TEKNOLOGI
+
+Gunakan stack berikut:
+
+| Komponen | Teknologi |
+|---|---|
+| Frontend | Next.js App Router |
+| Backend | Next.js server-side logic/API |
+| Bahasa | TypeScript |
+| Database | Neon PostgreSQL |
+| ORM | Prisma |
+| Validasi | Zod |
+| Version control | GitHub |
+| Hosting | Vercel |
+| Authentication | Solusi kompatibel Next.js dan Prisma |
+| Object storage | Cloudflare R2 atau layanan sejenis jika diperlukan |
+
+Ketentuan:
+
+- Satu aplikasi Next.js untuk website publik dan dashboard internal.
+- Satu database PostgreSQL.
+- Tidak memerlukan backend terpisah atau Railway pada rancangan awal.
+- Business logic dijalankan melalui server-side logic/API.
+- File foto dan dokumen besar disimpan di object storage.
+- Jangan menyimpan file binary besar langsung di PostgreSQL.
+- Semua credential menggunakan environment variables.
+- Jangan mengekspos secret ke frontend atau GitHub.
+
+Konfigurasi database:
+
+- `DATABASE_URL`: pooled connection aplikasi.
+- `DIRECT_URL`: direct connection untuk migration jika diperlukan oleh versi Prisma.
+
+Periksa konfigurasi Prisma 6 atau Prisma 7 sebelum menentukan implementasi.
+
+### Git workflow
+
+- `dev`: pengembangan.
+- `main`: produksi.
+
+Alur:
+
+Coding → Testing lokal → Preview deployment → Perbaikan → Merge ke main → Production.
+
+---
+
+# 5. ROLE DAN ACCESS CONTROL
+
+Role awal:
+
+1. OWNER
+2. SUPER_ADMIN
+3. ADMIN
+4. MANAGER
+5. FINANCE
+6. WAREHOUSE_STAFF
+7. DRIVER
+
+### OWNER
+
+Pemilik atau pemegang otoritas bisnis.
+
+Hak akses:
+- Melihat seluruh operasional perusahaan.
+- Melihat seluruh gudang.
+- Melihat laporan keuangan konsolidasi.
+- Memantau transaksi, perjalanan, dan performa operasional.
+- Mengawasi aktivitas Admin dan Manager sesuai kewenangan bisnis.
+
+OWNER berfokus pada pengawasan dan keputusan bisnis, bukan maintenance teknis.
+
+### SUPER_ADMIN
+
+Administrator teknis sistem.
+
+Hak akses:
+- Mengelola user, role, permission, dan konfigurasi.
+- Melakukan maintenance.
+- Mengakses seluruh data untuk kebutuhan teknis.
+- Mengelola master data sesuai kewenangan.
+- Melakukan tindakan administratif yang tercatat dalam audit trail.
+
+### ADMIN
+
+Hak akses sesuai permission:
+- Membuat transaksi.
+- Mengelola customer.
+- Memilih jenis harga.
+- Menginput nominal transaksi.
+- Mencetak resi dan label.
+- Melakukan aktivitas operasional sesuai kewenangan.
+
+### MANAGER
+
+- Melihat laporan operasional.
+- Memantau perjalanan.
+- Memeriksa performa operasional.
+- Melihat laporan keuangan sesuai permission.
+- Memeriksa audit.
+- Melakukan approval hanya jika kelak ditetapkan.
+
+### FINANCE
+
+Finance memiliki pembatasan berdasarkan gudang.
+
+- Finance A hanya dapat mengakses data keuangan Warehouse A.
+- Finance B hanya dapat mengakses data keuangan Warehouse B.
+- Finance tidak otomatis memperoleh akses global.
+- Finance berwenang melakukan koreksi pendapatan sesuai prosedur.
+- Seluruh koreksi harus memiliki audit trail.
+
+### WAREHOUSE_STAFF
+
+- Hanya mengakses gudang yang ditugaskan.
+- Melakukan penerimaan.
+- Melakukan scan.
+- Melakukan loading dan unloading.
+- Melakukan rekonsiliasi.
+- Mencatat kondisi fisik barang.
+- Tidak otomatis memperoleh akses keuangan.
+
+### DRIVER
+
+- Akun individual.
+- Hanya melihat perjalanan yang ditugaskan.
+- Melihat informasi Manifest.
+- Mengirim dokumentasi perjalanan.
+- Melakukan update lokasi dan catatan.
+- Tidak dapat mengubah pendapatan atau data finansial.
+
+### Struktur RBAC
+
+Desain konseptual harus mendukung:
+
+- User.
+- Role.
+- Permission.
+- UserRole.
+- RolePermission.
+- UserWarehouse.
+
+Gunakan relasi many-to-many melalui tabel penghubung jika satu user dapat memiliki beberapa role.
+
+Jangan menggunakan `role_id` langsung pada User jika arsitektur yang dipilih adalah UserRole.
+
+**Semua pemeriksaan permission dan warehouse scope wajib dilakukan di backend.**
+
+---
+
+# 6. MASTER DATA
+
+Master data awal:
+
+### Warehouse
+- Gudang Bali.
+- Gudang Surabaya.
+- Kode gudang unik.
+- Nama.
+- Alamat/lokasi.
+- Status aktif.
+
+Gudang dapat bergantian menjadi asal maupun tujuan sesuai arah perjalanan. Jangan membatasi gudang hanya sebagai ORIGIN atau DESTINATION.
+
+### Customer
+- Nama.
+- Nomor telepon.
+- Alamat.
+- Email jika diperlukan.
+- Status.
+
+Customer dapat berperan sebagai pengirim maupun penerima.
+
+### Vehicle
+- Nomor polisi.
+- Kode kendaraan.
+- Jenis kendaraan.
+- Kapasitas.
+- Status operasional.
+
+### Driver
+- Nama.
+- Kode driver.
+- Nomor telepon.
+- Nomor SIM jika diperlukan.
+- Status aktif.
+- Akun login.
+
+### PricingType
+
+Master jenis harga yang fleksibel.
+
+Jenis awal:
+- Harga Customer.
+- Harga B2B.
+
+Atribut konseptual:
+- id.
+- name.
+- code.
+- is_active.
+- created_at.
+- updated_at.
+
+Jenis harga baru harus dapat ditambahkan tanpa perubahan besar pada database.
+
+Jangan menggunakan enum kaku untuk jenis harga.
+
+---
+
+# 7. WEBSITE PUBLIK
+
+Website publik menyediakan:
+
+### Homepage
+- Informasi layanan.
+- Informasi rute Bali ↔ Surabaya.
+- Kontak.
+- Tombol cek resi.
+- Tombol estimasi harga.
+
+### Tracking Resi
+
+Customer dapat mencari pengiriman menggunakan nomor resi.
+
+Informasi yang dapat ditampilkan:
+- Nomor resi.
+- Tanggal transaksi.
+- Kota asal dan tujuan.
+- Status pengiriman.
+- Histori perjalanan.
+- Estimasi kedatangan jika tersedia.
+
+Jangan menampilkan:
+- Informasi finansial.
+- Data pribadi pengirim/penerima secara terbuka.
+- Nomor telepon pribadi driver.
+- Resi milik customer lain.
+- Daftar muatan Manifest milik pihak lain.
+- Informasi sensitif operasional.
+
+Terapkan rate limiting dan mekanisme verifikasi tambahan jika diperlukan.
+
+### Estimasi Harga
+
+Keputusan final:
+
+**Estimasi harga sementara menggunakan referensi tarif dari luar sistem.**
+
+Ketentuan:
+- Jangan membuat mesin tarif internal kompleks.
+- Jangan mengarang tarif.
+- Estimasi bukan harga final.
+- Tampilkan keterangan bahwa nominal perlu dikonfirmasi admin.
+- Harga aktual transaksi tetap dimasukkan manual oleh admin.
+
+Parameter yang relevan:
+- Rute.
+- Jenis barang.
+- Berat.
+- Dimensi.
+- Jumlah barang atau koli.
+- Biaya tambahan jika relevan.
+
+Minimum yang pernah ditetapkan:
+- Minimum berat: 1 kg.
+- Minimum volume: 1 m³.
+
+Formula volumetrik, faktor pembagi, pembulatan, dan tarif aktual masih perlu sumber atau keputusan yang jelas. Jangan mengarangnya.
+
+---
+
+# 8. KONSEP UTAMA PENGIRIMAN: SHIPMENT, KOLI, MANIFEST
+
+Bagian ini merupakan aturan arsitektur paling penting.
+
+Jangan menggunakan model lama yang menyamakan Shipment dengan kumpulan Koli.
+
+## 8.1 Shipment / Resi
+
+Shipment adalah identitas utama transaksi pengiriman.
+
+Setiap Shipment:
+- Memiliki satu nomor resi unik.
+- Memiliki barcode resi unik.
+- Memiliki data pengirim dan penerima.
+- Memiliki gudang asal dan tujuan.
+- Memiliki deskripsi barang.
+- Memiliki berat dan dimensi yang relevan.
+- Memiliki satu jenis harga yang dipilih.
+- Memiliki satu nominal transaksi.
+- Memiliki histori tracking sendiri.
+
+**Satu Shipment/Resi adalah unit individual yang dilacak dan dicatat dalam ManifestItem.**
+
+Jangan mengubah satu Shipment menjadi beberapa unit tracking independen tanpa keputusan bisnis baru.
+
+## 8.2 Koli
+
+Koli adalah wadah fisik untuk mengelompokkan beberapa Shipment/Resi.
+
+Contoh:
+
+Koli 001 berisi:
+- Resi A.
+- Resi B.
+- Resi C.
+- Resi D.
+- Resi E.
+
+Artinya satu Koli dapat berisi beberapa resi berbeda.
+
+Koli bersifat OPSIONAL.
+
+Ada dua kondisi operasional:
+
+**Kondisi A — Menggunakan Koli**
+
+Beberapa resi dikelompokkan ke dalam karung, dus, atau wadah fisik lain.
+
+**Kondisi B — Tanpa Koli**
+
+Barang atau resi dimuat langsung ke truk tanpa dimasukkan ke karung atau dus bersama.
+
+Dalam kondisi B:
+- Tidak perlu membuat record Koli.
+- Resi tetap dapat dimuat ke Manifest.
+- Scan barcode resi langsung membuat satu ManifestItem.
+
+Jangan mewajibkan setiap Shipment memiliki Koli.
+
+## 8.3 KoliItem
+
+KoliItem adalah relasi historis antara Koli dan Shipment.
+
+Atribut konseptual:
+- id.
+- koli_id.
+- shipment_id.
+- assigned_at.
+- released_at.
+
+Aturan:
+- Satu Koli dapat mempunyai banyak Shipment.
+- Satu Shipment maksimal berada pada satu Koli aktif.
+- Satu Shipment dapat mempunyai beberapa histori keanggotaan Koli.
+- Histori tidak boleh dihapus.
+- `released_at` hanya diisi ketika hubungan fisik Shipment dengan Koli benar-benar berakhir.
+
+**Memuat Koli ke truk tidak otomatis mengakhiri hubungan KoliItem.**
+
+KoliItem dan ManifestItem memiliki tujuan berbeda.
+
+## 8.4 Manifest dan ManifestItem
+
+Manifest merupakan dokumen muatan satu perjalanan truk.
+
+Aturan final:
+
+**1 Manifest = 1 Trip = 1 Truk.**
+
+Manifest selalu mencatat setiap Shipment/Resi secara individual.
+
+Contoh:
+
+Koli 001 berisi Resi A, B, C, D, E.
+
+Dua resi lain, F dan G, dimuat langsung tanpa Koli.
+
+Jika semuanya masuk truk yang sama, ManifestItem berisi tujuh baris:
+- Resi A.
+- Resi B.
+- Resi C.
+- Resi D.
+- Resi E.
+- Resi F.
+- Resi G.
+
+Jangan hanya mencatat jumlah Koli dalam Manifest.
+
+ManifestItem adalah relasi Manifest dengan Shipment.
+
+Atribut konseptual:
+- id.
+- manifest_id.
+- shipment_id.
+- loaded_at.
+- released_at.
+- status/assignment_status jika memang diperlukan.
+
+Aturan:
+- Satu Shipment maksimal berada pada satu Manifest aktif.
+- Histori penugasan ManifestItem dipertahankan.
+- Satu Manifest dapat berisi banyak Shipment.
+- Shipment dapat memiliki histori penugasan pada beberapa Manifest setelah penugasan sebelumnya berakhir melalui prosedur yang sah.
+- Jangan mengizinkan dua Manifest aktif untuk satu Shipment.
+
+Jika satu resi dapat dibagi secara fisik ke beberapa truk, kebutuhan tersebut harus diklarifikasi dahulu. Arsitektur saat ini memperlakukan satu resi sebagai unit pemuatan yang tidak dibagi.
+
+---
+
+# 9. ATURAN TRIP DAN MANIFEST
+
+Trip mencatat perjalanan fisik.
+
+Manifest mencatat daftar resi yang dibawa pada perjalanan tersebut.
+
+Aturan final:
+
+- Satu Trip memiliki tepat satu Manifest.
+- Satu Manifest hanya dimiliki satu Trip.
+- Satu Trip menggunakan satu kendaraan.
+- Satu Manifest mencatat satu primary driver.
+- Driver utama bertanggung jawab atas dokumentasi perjalanan.
+- Jika beberapa driver bergantian mengemudi, primary driver tetap dicatat sebagai penanggung jawab dokumentasi.
+- Perjalanan balik adalah Trip dan Manifest baru.
+- Tidak ada circular FK antara Trip dan Manifest.
+
+Desain konseptual yang disarankan:
+
+**Trip**
+- id.
+- trip_number.
+- origin_warehouse_id.
+- destination_warehouse_id.
+- estimated_arrival.
+- actual_departure.
+- actual_arrival.
+- status.
+- created_at.
+
+**Manifest**
+- id.
+- manifest_number.
+- trip_id (FK UNIQUE).
+- vehicle_id.
+- primary_driver_id.
+- status.
+- notes.
+- created_at.
+
+Relasi Trip–Manifest harus one-to-one dengan `Manifest.trip_id` UNIQUE dan NOT NULL.
+
+---
+
+# 10. WORKFLOW TRANSAKSI DAN PEMBUATAN RESI
+
+Admin membuat transaksi internal.
+
+Informasi:
+- Pengirim.
+- Penerima.
+- Gudang asal.
+- Gudang tujuan.
+- Deskripsi barang.
+- Berat aktual.
+- Dimensi jika relevan.
+- Jenis harga.
+- Nominal harga manual.
+- Catatan.
+- Tanggal transaksi.
+
+Alur:
+1. Admin membuat transaksi.
+2. Mengisi pengirim dan penerima.
+3. Memilih gudang asal dan tujuan.
+4. Mengisi deskripsi dan pengukuran barang.
+5. Memilih satu PricingType.
+6. Menginput satu nominal harga.
+7. Memeriksa data.
+8. Memfinalisasi transaksi.
+9. Sistem membuat nomor resi unik.
+10. Sistem menghasilkan barcode.
+11. Resi dan label dapat dicetak.
+
+Transaksi dapat berstatus draft sebelum difinalisasi.
+
+Jangan memfinalisasi transaksi jika data wajib belum lengkap.
+
+### Snapshot harga
+
+Saat transaksi difinalisasi:
+- Simpan jenis harga yang dipilih.
+- Simpan kode/nama jenis harga.
+- Simpan nominal transaksi.
+- Perubahan master PricingType tidak boleh mengubah histori transaksi.
+
+Harga Customer dan B2B tidak boleh dicatat sekaligus sebagai pendapatan pada satu transaksi.
+
+Jika menggunakan Harga B2B, resi menampilkan penanda khusus B2B.
+
+---
+
+# 11. WORKFLOW OPERASIONAL GUDANG
+
+## 11.1 Penerimaan di gudang asal
+
+1. Petugas login.
+2. Sistem memverifikasi warehouse assignment.
+3. Petugas memilih aktivitas penerimaan.
+4. Petugas scan barcode resi.
+5. Sistem memvalidasi resi dan gudang.
+6. Petugas memeriksa barang.
+7. Petugas mengonfirmasi penerimaan.
+8. Sistem mencatat WarehouseMovement.
+9. Sistem mencatat ScanLog.
+
+## 11.2 Pengemasan ke Koli
+
+Jika barang menggunakan Koli:
+1. Petugas membuat atau memilih Koli.
+2. Petugas scan resi.
+3. Sistem memvalidasi resi.
+4. Petugas mengonfirmasi keanggotaan Koli.
+5. Sistem membuat KoliItem.
+
+Satu Koli dapat berisi beberapa Shipment.
+
+Jika barang tidak menggunakan Koli, proses ini dilewati.
+
+## 11.3 Loading ke Manifest
+
+Ada dua cara:
+
+**Cara A — Scan Koli**
+
+1. Petugas scan barcode Koli.
+2. Sistem mengambil semua KoliItem aktif.
+3. Sistem mengambil seluruh Shipment anggota Koli.
+4. Sistem memvalidasi setiap Shipment.
+5. Sistem menampilkan preview anggota yang akan dimuat.
+6. Sistem memastikan tidak ada Shipment yang sudah masuk Manifest aktif.
+7. Sistem membuat satu ManifestItem per Shipment.
+8. Seluruh proses dilakukan dalam satu database transaction.
+
+Default: all-or-none. Jika satu anggota tidak valid, seluruh proses dibatalkan. Pengecualian parsial belum menjadi keputusan bisnis.
+
+**Cara B — Scan Resi Langsung**
+
+1. Petugas scan barcode resi.
+2. Sistem memvalidasi Shipment.
+3. Sistem membuat satu ManifestItem.
+4. Tidak perlu membuat Koli.
+
+## 11.4 Keberangkatan
+
+Sebelum keberangkatan:
+- Periksa seluruh ManifestItem.
+- Periksa kendaraan.
+- Periksa primary driver.
+- Pastikan Manifest siap berangkat.
+
+Setelah keberangkatan:
+- Manifest dikunci.
+- Perubahan muatan tidak boleh dilakukan secara normal.
+- Koreksi hanya melalui prosedur khusus dengan audit trail.
+
+---
+
+# 12. WORKFLOW PERJALANAN DAN TRACKING
+
+Tracking harus membedakan event perjalanan dengan pergerakan fisik barang.
+
+### ManifestEvent
+
+ManifestEvent adalah event induk perjalanan.
+
+Contoh:
+- Truk berangkat dari gudang.
+- Tiba di pelabuhan.
+- Menyeberang.
+- Tiba di kota tujuan.
+- Tiba di gudang tujuan.
+
+Data yang relevan:
+- manifest_id.
+- event_type.
+- location_name.
+- latitude/longitude jika tersedia dan diizinkan.
+- description/notes.
+- occurred_at.
+- actor_id.
+- created_at.
+
+Foto dokumentasi disimpan di object storage. Jangan menyimpan binary foto besar di PostgreSQL.
+
+### TrackingEvent
+
+TrackingEvent merupakan histori informasi per Shipment.
+
+Ketika ManifestEvent dibuat:
+1. Sistem mengambil seluruh Shipment dalam Manifest.
+2. Sistem membuat satu TrackingEvent untuk setiap Shipment.
+3. Setiap TrackingEvent terhubung ke Shipment.
+4. Event sumber dicatat melalui `source_manifest_event_id`.
+5. Proses harus idempoten.
+
+Constraint konseptual:
+
+`UNIQUE(source_manifest_event_id, shipment_id) WHERE source_manifest_event_id IS NOT NULL`
+
+Jika propagasi dijalankan ulang, jangan membuat TrackingEvent duplikat.
+
+`source_manifest_event_id` boleh nullable untuk event yang bukan berasal dari ManifestEvent.
+
+PENTING:
+- Update lokasi perjalanan tidak otomatis berarti barang telah diterima secara fisik.
+- Tiba di pelabuhan bukan berarti barang tiba di gudang tujuan.
+- Tiba di gudang bukan berarti semua barang sudah diterima.
+- ManifestEvent tidak otomatis mengubah status operasional seluruh Shipment.
+
+### Pemisahan catatan
+
+| Entitas | Tujuan |
+|---|---|
+| ManifestEvent | Event perjalanan truk |
+| TrackingEvent | Histori informasi pengiriman per resi |
+| WarehouseMovement | Histori perpindahan fisik barang |
+| ScanLog | Percobaan scan dan hasil validasi |
+
+---
+
+# 13. UNLOADING DAN PENERIMAAN GUDANG TUJUAN
+
+Setelah truk tiba:
+1. Trip dapat ditandai Arrived.
+2. Gudang tujuan melakukan scan individual setiap resi.
+3. Sistem mencocokkan dengan ManifestItem.
+4. Sistem mencatat penerimaan fisik.
+5. Sistem mencatat WarehouseMovement.
+6. Sistem memperbarui status operasional resi sesuai hasil rekonsiliasi.
+
+Penting:
+- Trip Arrived tidak berarti semua Shipment sudah diterima.
+- Manifest selesai perjalanan tidak berarti semua barang sudah direkonsiliasi.
+- Setiap resi harus dapat diketahui apakah sudah diterima atau masih bermasalah.
+- Penerimaan gudang tidak otomatis mengakhiri KoliItem.
+
+Setelah diterima dan siap diserahkan, Shipment dapat masuk status `READY_FOR_PICKUP`.
+
+---
+
+# 14. PENYERAHAN BARANG DAN DELIVERY PROOF
+
+Penyerahan harus dicatat sebagai kejadian operasional tersendiri.
+
+Konsep:
+- DeliveryProof: header bukti serah terima.
+- DeliveryProofItem: penghubung bukti dengan satu atau beberapa Shipment.
+
+Satu DeliveryProof dapat mencakup beberapa Shipment jika proses serah terimanya memang satu kejadian.
+
+Data yang dapat disimpan:
+- proof_number.
+- proof_type.
+- signed_at.
+- nama penerima.
+- nomor telepon jika diperlukan.
+- actor/user.
+- catatan.
+- URL foto atau tanda tangan di object storage.
+
+Jangan menyimpan `shipment_id` sekaligus pada header dan detail jika relasi sudah diwakili DeliveryProofItem.
+
+Shipment menjadi `DELIVERED` setelah serah terima aktual terkonfirmasi sesuai prosedur.
+
+Jangan menandai Delivered hanya karena:
+- Trip Arrived.
+- Manifest selesai.
+- Barang masuk gudang tujuan.
+- TrackingEvent dibuat.
+
+Detail verifikasi penerima masih perlu keputusan bisnis.
+
+---
+
+# 15. STATUS DAN INTEGRITAS DATA
+
+Status berikut harus dipisahkan:
+
+1. Status Trip.
+2. Status Manifest.
+3. Status Shipment.
+4. Status fisik/lokasi Shipment.
+5. Status Koli.
+
+Jangan menggunakan satu kolom status untuk mewakili seluruh kondisi.
+
+Contoh status Trip yang dapat dipertimbangkan:
+- DRAFT.
+- LOADING.
+- READY_TO_DEPART.
+- DEPARTED.
+- ARRIVED.
+- CLOSED.
+- CANCELLED.
+
+Status final dan transisinya perlu divalidasi sebelum implementasi.
+
+Shipment adalah unit individual. Jangan menggunakan agregasi mayoritas status dari Koli karena Koli bukan anak dari Shipment.
+
+Status Shipment harus mencerminkan kondisi operasional resi itu sendiri.
+
+Status rusak, hilang, return, pembatalan, dan kondisi khusus lainnya masih menunggu SOP.
+
+---
+
+# 16. MODUL FINANCE — MVP
+
+### 16.1 Pendapatan
+
+Pendapatan berasal dari transaksi Shipment.
+
+Satu transaksi:
+- Memilih satu PricingType.
+- Memiliki satu nominal harga manual.
+- Menyimpan snapshot jenis harga dan nominal.
+
+FinanceRecord harus terhubung ke Shipment.
+
+Atribut konseptual:
+- id.
+- shipment_id.
+- record_type.
+- amount.
+- pricing_type_id jika relevan.
+- price_name_snap.
+- price_nominal_snap.
+- reverses_record_id.
+- created_by.
+- created_at.
+
+Satu Shipment dapat memiliki beberapa FinanceRecord historis untuk pencatatan awal dan koreksi.
+
+FinanceRecord bersifat append-only:
+- Tidak melakukan hard delete.
+- Tidak mengubah record yang sudah diposting.
+- Koreksi menggunakan record baru.
+- Record koreksi merujuk record sebelumnya.
+- Simpan alasan dan audit trail.
+
+Jangan menghubungkan seluruh pendapatan hanya ke Trip.
+
+### 16.2 TripExpense
+
+TripExpense merupakan uang keberangkatan lump-sum yang dibawa driver.
+
+Contoh:
+- Uang keberangkatan Trip A: Rp3.000.000.
+
+MVP tidak memerlukan rincian:
+- BBM.
+- Tol.
+- Ferry.
+- Parkir.
+- Makan.
+- Perawatan.
+
+TripExpense terpisah dari FinanceRecord pendapatan Shipment.
+
+Histori koreksi harus dipertahankan:
+- Satu Trip dapat mempunyai beberapa record historis.
+- Maksimal satu record aktif pada satu waktu jika mekanisme ini digunakan.
+- Koreksi membuat record baru.
+- Record lama dinonaktifkan, bukan dihapus.
+- Perubahan dicatat dalam AuditLog.
+
+### 16.3 Batasan Finance MVP
+
+Tidak termasuk MVP:
+- Piutang.
+- Pembayaran parsial.
+- Payment allocation kompleks.
+- Modul kas lengkap.
+- General expense perusahaan.
+- Akuntansi double-entry lengkap.
+
+Jangan menganggap pendapatan yang tercatat otomatis berarti uang tunai sudah diterima. Prosedur pencatatan pembayaran aktual masih perlu dikonfirmasi jika ingin dimasukkan ke sistem.
+
+Finance A dan B hanya dapat mengakses data keuangan sesuai warehouse scope.
+
+---
+
+# 17. SCANLOG DAN WAREHOUSEMOVEMENT
+
+### ScanLog
+
+Mencatat seluruh percobaan scan:
+- Berhasil.
+- Gagal.
+- Ditolak.
+- Duplikat.
+- Tidak sesuai gudang.
+- Tidak memenuhi validasi.
+
+Atribut konseptual:
+- id.
+- warehouse_id.
+- actor_id.
+- action.
+- shipment_id nullable.
+- koli_id nullable.
+- status.
+- reason.
+- created_at.
+
+Jika ScanLog mengacu pada Shipment atau Koli, tepat satu dari kedua FK tersebut harus terisi.
+
+### WarehouseMovement
+
+Mencatat perpindahan fisik yang sudah dikonfirmasi.
+
+Atribut konseptual:
+- id.
+- shipment_id.
+- from_warehouse_id jika relevan.
+- to_warehouse_id jika relevan.
+- movement_type.
+- status/condition jika diperlukan.
+- actor_id.
+- occurred_at.
+- created_at.
+
+Jangan menyamakan ScanLog dengan WarehouseMovement.
+
+Scan yang berhasil belum tentu berarti perpindahan fisik sudah dikonfirmasi.
+
+---
+
+# 18. BARCODE, PERANGKAT, DAN PRINTER
+
+### Barcode
+
+Gunakan barcode Code 128.
+
+Identitas:
+- Nomor resi untuk Shipment.
+- Barcode terpisah untuk Koli jika Koli digunakan.
+
+Barcode harus unik dan tidak berubah setelah diterbitkan.
+
+Contoh:
+- Resi: EXP0001.
+- Koli: KOL0001.
+
+### Perangkat
+
+Perangkat yang direncanakan:
+1. PC/laptop admin.
+2. USB barcode scanner HID.
+3. Android untuk scan kamera.
+4. Printer thermal 100 × 150 mm.
+5. Timbangan digital.
+6. Meteran.
+7. Koneksi internet/Wi-Fi.
+8. UPS atau backup daya jika diperlukan.
+9. Backup hotspot.
+
+Library scan kamera:
+- `html5-qrcode`.
+- `@zxing/browser`.
+
+### Label
+
+Ukuran awal:
+- 100 × 150 mm (4 × 6 inci).
+
+Isi:
+- Nama perusahaan.
+- Nomor resi.
+- Barcode.
+- Gudang asal dan tujuan.
+- Informasi penerima secukupnya.
+- Keterangan B2B jika berlaku.
+
+Gunakan generator seperti `bwip-js`.
+
+Uji printer, hasil cetak, kualitas barcode, browser printing, USB/LAN, dan protokol printer sebelum pembelian dalam jumlah besar.
+
+Berat diinput manual pada tahap awal. Integrasi timbangan melalui USB/serial merupakan pengembangan berikutnya jika perangkat mendukung.
+
+---
+
+# 19. AUDIT, NUMBER SEQUENCE, DAN KEAMANAN
+
+### NumberSequence
+
+Nomor resi dan Manifest harus dibuat secara atomik.
+
+Jangan menggunakan `COUNT + 1`.
+
+Gunakan mekanisme NumberSequence atau sequence database yang aman terhadap request bersamaan.
+
+### AuditLog
+
+Catat aktivitas penting:
+- Perubahan transaksi.
+- Koreksi pendapatan.
+- Perubahan hak akses.
+- Perubahan master.
+- Koreksi Manifest.
+- Perubahan status penting.
+- Tindakan administratif.
+
+AuditLog minimal mencatat:
+- actor/user.
+- action.
+- entity type.
+- entity id.
+- timestamp.
+- alasan jika relevan.
+- metadata perubahan sebelum/sesudah jika sesuai.
+
+### Keamanan
+
+- Hash password menggunakan mekanisme yang aman.
+- Validasi input di server.
+- Gunakan authorization di backend.
+- Batasi akses berdasarkan warehouse.
+- Terapkan rate limiting untuk tracking publik.
+- Lindungi secret.
+- Gunakan audit trail.
+- Siapkan backup dan recovery.
+- Jangan mengekspos data sensitif customer.
+
+---
+
+# 20. RANCANGAN DATABASE DAN ERD
+
+ERD konseptual belum dianggap final sampai diperiksa dan disetujui pengguna.
+
+### Entitas inti yang harus dipertimbangkan
+
+**Core Shipment**
+- Shipment.
+- Koli.
+- KoliItem.
+
+**Trip dan Manifest**
+- Trip.
+- Manifest.
+- ManifestItem.
+- Vehicle.
+- Driver.
+
+**Tracking dan serah terima**
+- ManifestEvent.
+- TrackingEvent.
+- DeliveryProof.
+- DeliveryProofItem.
+
+**Gudang**
+- Warehouse.
+- WarehouseMovement.
+- ScanLog.
+
+**Finance**
+- FinanceRecord.
+- TripExpense.
+- PricingType.
+
+**Master**
+- Customer.
+- NumberSequence.
+
+**Access Control dan System**
+- User.
+- Role.
+- Permission.
+- UserRole.
+- RolePermission.
+- UserWarehouse.
+- AuditLog.
+
+Daftar tersebut merupakan target konseptual, bukan instruksi untuk menambahkan tabel tanpa kebutuhan.
+
+### Constraint yang wajib diperiksa
+
+1. `Shipment.shipment_no` UNIQUE.
+2. `Shipment.barcode` UNIQUE.
+3. `Koli.koli_no` UNIQUE.
+4. `Koli.barcode` UNIQUE.
+5. `Manifest.manifest_no` UNIQUE.
+6. `Manifest.trip_id` UNIQUE dan NOT NULL.
+7. `ManifestItem` UNIQUE `(manifest_id, shipment_id)`.
+8. Partial unique index `KoliItem(shipment_id) WHERE released_at IS NULL`.
+9. Partial unique index `ManifestItem(shipment_id) WHERE released_at IS NULL`.
+10. Partial unique index TrackingEvent `(source_manifest_event_id, shipment_id)` jika source tidak NULL.
+11. ScanLog CHECK constraint: tepat satu FK Shipment atau Koli terisi.
+12. TripExpense: maksimal satu record aktif per Trip jika mekanisme histori aktif digunakan.
+13. FinanceRecord tidak boleh dihapus atau diubah setelah diposting.
+14. Relasi historis harus tetap terjaga.
+
+Gunakan foreign key dan delete behavior yang melindungi data transaksi serta histori. Hindari cascade delete pada data operasional/finansial yang sudah tercatat.
+
+### Aturan desain penting
+
+- Shipment adalah identitas utama.
+- Koli opsional.
+- KoliItem adalah histori pengelompokan fisik.
+- ManifestItem adalah histori pemuatan Shipment individual.
+- Manifest selalu berisi Shipment individual, bukan hanya daftar Koli.
+- Trip dan Manifest adalah 1:1.
+- Manifest menyimpan vehicle_id dan primary_driver_id.
+- Tidak ada circular FK.
+- FinanceRecord terkait Shipment.
+- TripExpense terkait Trip.
+- TrackingEvent tidak sama dengan WarehouseMovement.
+- Status Trip, Manifest, Shipment, dan Koli tidak boleh dicampur.
+
+Jangan menambahkan HandlingUnit, ShipmentItem, ShipmentCharge, atau TripItem sebagai entitas wajib tanpa kebutuhan bisnis yang jelas dan persetujuan pengguna.
+
+**Catatan:** ShipmentItem dan TripItem dari dokumen lama adalah bagian dari rancangan sebelumnya dan tidak boleh otomatis dipertahankan karena model Shipment/Koli/Manifest sudah berubah.
+
+---
+
+# 21. KEPUTUSAN BISNIS YANG MASIH PENDING
+
+Jangan mengarang keputusan untuk hal berikut.
+
+### Operasional
+1. SOP membuka, membongkar, membagi, atau menyegel kembali Koli.
+2. Penanganan barang rusak.
+3. Penanganan barang hilang.
+4. Penanganan barang tertinggal.
+5. Salah tujuan.
+6. Barang tidak sesuai Manifest.
+7. Prosedur retur.
+8. Prosedur pembatalan.
+9. Prosedur pergantian truk.
+10. Prosedur koreksi Manifest setelah keberangkatan.
+
+### Validasi
+11. Kriteria Shipment boleh dimuat.
+12. Apakah pembayaran harus selesai sebelum barang dimuat atau diserahkan.
+13. Apakah scan Koli yang sebagian anggotanya tidak valid harus selalu all-or-none atau dapat menggunakan pengecualian terkontrol.
+
+### Customer dan Delivery
+14. Apakah data pengirim/penerima disimpan sebagai snapshot lengkap pada Shipment atau menggunakan referensi Customer ditambah snapshot.
+15. Verifikasi penerima.
+16. Penggunaan pickup code.
+17. Foto atau tanda tangan sebagai bukti serah terima.
+18. Informasi tracking publik yang boleh ditampilkan.
+
+### Harga dan Finance
+19. Faktor pembagi berat volumetrik.
+20. Aturan pembulatan.
+21. Referensi tarif eksternal untuk estimasi.
+22. Prosedur pembayaran aktual jika akan dicatat.
+23. Batas dan approval koreksi pendapatan.
+24. Detail approval uang keberangkatan jika diperlukan.
+
+### Data dan Operasional
+25. Aturan penomoran final resi, Koli, dan Manifest.
+26. Status operasional final dan transisi setiap entitas.
+27. Detail penyimpanan foto dan retensi dokumen.
+
+Pending decision tidak boleh menghambat perancangan bagian yang sudah jelas.
+
+---
+
+# 22. LAPORAN DAN DASHBOARD
+
+### Operasional
+- Jumlah transaksi.
+- Jumlah resi.
+- Jumlah Koli.
+- Barang di gudang.
+- Barang dalam perjalanan.
+- Barang sudah diterima gudang tujuan.
+- Barang ready for pickup.
+- Barang delivered.
+- Barang bermasalah.
+- Riwayat trip dan Manifest.
+
+### Gudang
+- Resi yang berada di gudang.
+- Koli yang berada di gudang.
+- Lama barang berada di gudang.
+- Barang belum masuk Manifest.
+- Barang sudah tiba tetapi belum diambil.
+- Barang bermasalah.
+
+### Kendaraan
+- Riwayat perjalanan.
+- Jumlah resi dan Koli yang dibawa.
+- Pengeluaran Trip.
+- Utilisasi jika kapasitas kendaraan tercatat.
+
+### Finance MVP
+- Pendapatan transaksi.
+- Pendapatan berdasarkan jenis harga.
+- Koreksi pendapatan.
+- Uang keberangkatan perjalanan.
+- Rekap bulanan.
+
+Jangan menampilkan piutang, pembayaran parsial, atau laba/rugi lengkap yang membutuhkan modul di luar MVP.
+
+Semua laporan harus mengikuti role dan warehouse scope.
+
+Sediakan ekspor CSV, Excel, atau PDF sesuai kebutuhan implementasi.
+
+---
+
+# 23. ROADMAP IMPLEMENTASI
+
+Pembangunan dilakukan bertahap.
+
+### Fase 1 — Analisis dan desain
+- Validasi kebutuhan.
+- Finalisasi ERD.
+- Finalisasi status dan workflow.
+- Finalisasi RBAC.
+- Persetujuan pengguna.
+
+### Fase 2 — Fondasi aplikasi
+- Setup Next.js.
+- Setup Neon PostgreSQL.
+- Setup Prisma.
+- Authentication.
+- RBAC.
+- Layout dashboard.
+- Master Warehouse, Customer, Vehicle, Driver, PricingType.
+
+### Fase 3 — Transaksi dan Resi
+- Form transaksi.
+- Nomor resi.
+- Pengukuran.
+- Jenis harga.
+- Nominal manual.
+- Snapshot transaksi.
+- Barcode dan label.
+
+### Fase 4 — Koli dan Operasional Gudang
+- Master Koli.
+- Keanggotaan Koli.
+- Scan resi.
+- Scan Koli.
+- Penerimaan.
+- WarehouseMovement.
+- ScanLog.
+
+### Fase 5 — Trip dan Manifest
+- Pembuatan Trip.
+- Pembuatan Manifest.
+- Penugasan kendaraan.
+- Primary driver.
+- Loading.
+- Validasi muatan.
+- Keberangkatan.
+- Unloading.
+- Rekonsiliasi.
+
+### Fase 6 — Tracking dan Penyerahan
+- ManifestEvent.
+- TrackingEvent.
+- Dokumentasi perjalanan.
+- Tracking publik.
+- Ready for pickup.
+- DeliveryProof.
+- Delivered.
+
+### Fase 7 — Finance dan Laporan
+- FinanceRecord.
+- Koreksi pendapatan.
+- TripExpense.
+- Dashboard keuangan.
+- Laporan operasional dan keuangan.
+
+### Fase 8 — Pengujian nyata
+- Pengujian dua arah.
+- Pengujian Koli dan tanpa Koli.
+- Pengujian satu Koli dengan banyak resi.
+- Pengujian satu Manifest dengan banyak resi.
+- Pengujian satu resi hanya memiliki satu Manifest aktif.
+- Pengujian resi yang dipindahkan ke Koli lain setelah keanggotaan lama berakhir.
+- Pengujian scan ganda.
+- Pengujian transaksi bersamaan.
+- Pengujian tracking idempotency.
+- Pengujian koreksi Finance.
+- Pengujian pembatasan Finance A dan B.
+- Pengujian driver.
+- Pengujian penerimaan parsial.
+- Pengujian backup dan recovery.
+
+Estimasi awal 6–10 minggu merupakan perkiraan, bukan jaminan.
+
+---
+
+# 24. CARA AI HARUS BEKERJA
+
+AI bertindak sebagai:
+- Technical Partner.
+- Software Architect.
+- Database Designer.
+- Full-Stack Developer.
+- Technical Reviewer.
+
+Aturan kerja:
+
+1. Pahami kebutuhan bisnis sebelum coding.
+2. Jangan menulis seluruh sistem sekaligus.
+3. Jangan mengubah keputusan bisnis tanpa persetujuan.
+4. Jangan membuat business logic berdasarkan dugaan.
+5. Bedakan keputusan final, rekomendasi, dan pending.
+6. Hindari overengineering.
+7. Prioritaskan keamanan dan integritas data.
+8. Pandu pengguna langkah demi langkah.
+9. Berikan kode lengkap dan lokasi file.
+10. Jangan mengarang file, fungsi, tabel, atau struktur proyek.
+11. Periksa struktur yang tersedia sebelum mengubah kode.
+12. Jangan menyatakan pengujian berhasil tanpa bukti.
+13. Jelaskan direktori kerja untuk setiap perintah terminal.
+14. Jelaskan dampak migration dan rollback.
+15. Jangan mengasumsikan layanan berbayar tanpa menjelaskan alternatif.
+16. Jika ada beberapa opsi, pilih rekomendasi terbaik dan jelaskan alasannya.
+17. Jangan mengulang pembahasan yang sudah disepakati.
+18. Ajukan pertanyaan klarifikasi satu per satu.
+
+Jika memberikan kode, jelaskan:
+- Tujuan perubahan.
+- File yang dibuat atau diubah.
+- Lokasi file.
+- Kode lengkap.
+- Cara menjalankan.
+- Cara menguji.
+- Hasil yang diharapkan.
+- Risiko perubahan.
+
+Jika mengubah database:
+- Jelaskan relasi.
+- Jelaskan constraint.
+- Jelaskan migration.
+- Jelaskan dampak terhadap data.
+- Siapkan strategi rollback.
+
+---
+
+# 25. TUGAS AI PADA TAHAP SAAT INI
+
+**STATUS PROYEK: ANALISIS DAN FINALISASI ERD. BELUM MASUK IMPLEMENTASI DATABASE.**
+
+Baca seluruh PROJECT HANDOVER ini terlebih dahulu.
+
+Jangan langsung membuat kode, Prisma Schema, SQL, migration, atau struktur folder aplikasi.
+
+Lakukan pekerjaan berikut:
+
+1. Ringkas pemahaman proses bisnis.
+2. Identifikasi keputusan final.
+3. Identifikasi pending decision.
+4. Periksa konflik atau inkonsistensi dalam spesifikasi.
+5. Susun ERD konseptual berdasarkan keputusan terbaru.
+6. Periksa entitas, atribut, tipe data, PK, FK, nullable, unique constraint, dan kardinalitas.
+7. Periksa integritas KoliItem dan ManifestItem.
+8. Periksa relasi Trip dan Manifest.
+9. Periksa event-driven tracking dan idempotency.
+10. Periksa FinanceRecord dan TripExpense.
+11. Periksa RBAC dan warehouse scope.
+12. Periksa konsistensi workflow dengan model data.
+13. Sajikan Mermaid ER Diagram lengkap.
+14. Berikan daftar masalah yang masih membutuhkan keputusan pengguna.
+
+Jangan langsung menganggap ERD final.
+
+Tunggu persetujuan pengguna sebelum membuat Prisma Schema.
+
+### Aturan khusus selama review ERD
+
+Jangan menghidupkan kembali desain lama berikut:
+- Shipment memiliki banyak Koli sebagai child item.
+- ShipmentItem sebagai entitas wajib untuk mewakili Koli.
+- TripItem sebagai penghubung Koli dengan Trip.
+- Satu Shipment boleh berada dalam beberapa Manifest aktif.
+- Koli wajib untuk setiap pengiriman.
+- Pendapatan hanya terhubung ke Trip.
+- TripExpense dicampur dengan pendapatan Shipment.
+
+Jika menemukan kebutuhan yang tampaknya memerlukan salah satu struktur tersebut, jelaskan alasan dan minta persetujuan terlebih dahulu.
+
+---
+
+# 26. TARGET AKHIR SISTEM
+
+Membangun sistem ekspedisi cargo Bali ↔ Surabaya yang terintegrasi dari:
+
+- Transaksi.
+- Customer.
+- Shipment/Resi.
+- Koli opsional.
+- Barcode.
+- Pengukuran.
+- Scan gudang.
+- WarehouseMovement.
+- Trip.
+- Manifest.
+- Kendaraan.
+- Driver.
+- Dokumentasi perjalanan.
+- Tracking.
+- Penerimaan gudang tujuan.
+- DeliveryProof.
+- Pendapatan transaksi.
+- Koreksi Finance.
+- Uang keberangkatan.
+- Dashboard.
+- Laporan.
+- Audit trail.
+- Backup dan recovery.
+
+**Prioritas utama:**
+1. Identitas setiap resi konsisten.
+2. Koli dapat digunakan maupun dilewati.
+3. Manifest selalu mencatat resi individual.
+4. Tidak ada satu resi pada dua Manifest aktif.
+5. Data fisik dan data sistem dapat direkonsiliasi.
+6. Tracking tidak menghasilkan event duplikat.
+7. Pendapatan dan uang perjalanan tidak tercampur.
+8. Koreksi finansial dapat diaudit.
+9. Hak akses setiap user terjaga.
+10. Histori operasional tidak hilang.
+
+Bangun sistem secara bertahap, teruji, sederhana, dan sesuai keputusan bisnis yang telah disetujui pengguna.
