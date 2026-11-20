@@ -88,6 +88,7 @@ const ROLE_DEFINITIONS: Record<
       "finance:expense_approve",
       "master:read",
       "master:manage",
+      "user:manage",
       "audit:read",
     ],
   },

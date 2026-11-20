@@ -102,6 +102,16 @@ export async function loginAction(
       activeWarehouseId,
     };
 
+    const isDriverOnly =
+      sessionPayload.roles.includes("DRIVER") &&
+      !sessionPayload.roles.includes("OWNER") &&
+      !sessionPayload.roles.includes("SUPER_ADMIN") &&
+      !sessionPayload.roles.includes("MANAGER") &&
+      !sessionPayload.roles.includes("ADMIN") &&
+      !sessionPayload.roles.includes("WAREHOUSE_STAFF");
+
+    redirect(isDriverOnly ? "/driver" : "/dashboard");
+
     await createSession(sessionPayload);
   } catch (err: unknown) {
     console.error("Login error:", err);

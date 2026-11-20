@@ -1,12 +1,61 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
+import { useId, useRef, useState, useTransition } from "react";
 import { type ConfigInput, upsertSystemConfigAction } from "../config.actions";
 import type { SystemConfigItem } from "../config.queries";
 
 interface ConfigManagerProps {
   initialConfigs: SystemConfigItem[];
 }
+
+interface RecommendedConfigPreset {
+  key: string;
+  label: string;
+  defaultValue: string;
+  description: string;
+}
+
+const RECOMMENDED_CONFIGS: RecommendedConfigPreset[] = [
+  {
+    key: "COMPANY_NAME",
+    label: "Nama Perusahaan",
+    defaultValue: "Duta Ekspedisi",
+    description:
+      "Nama resmi perusahaan pada kop resi, surat jalan & halaman publik",
+  },
+  {
+    key: "VOLUMETRIC_DIVISOR",
+    label: "Divisor Berat Volumetrik (cm³)",
+    defaultValue: "4000",
+    description:
+      "Pembagi rumus (P × L × T) / divisor untuk berat volumetrik (4000 / 6000)",
+  },
+  {
+    key: "CS_WHATSAPP",
+    label: "WhatsApp Customer Service",
+    defaultValue: "6281234567890",
+    description:
+      "Nomor WhatsApp CS format internasional (628...) untuk kontak pelanggan",
+  },
+  {
+    key: "WAREHOUSE_BALI_ADDRESS",
+    label: "Alamat Gudang Bali (Denpasar)",
+    defaultValue: "Jl. Mahendradatta / Cargo Denpasar, Bali",
+    description: "Alamat lengkap drop-off & pengambilan paket cabang Bali",
+  },
+  {
+    key: "WAREHOUSE_SBY_ADDRESS",
+    label: "Alamat Gudang Surabaya",
+    defaultValue: "Pergudangan Margomulyo / Perak, Surabaya",
+    description: "Alamat lengkap drop-off & pengambilan paket cabang Surabaya",
+  },
+  {
+    key: "OPERATIONAL_HOURS",
+    label: "Jam Operasional Gudang",
+    defaultValue: "Senin - Sabtu, 08.00 - 17.00",
+    description: "Jam pelayanan penerimaan & pengambilan barang di gudang",
+  },
+];
 
 export function ConfigManager({ initialConfigs }: ConfigManagerProps) {
   const [configs, setConfigs] = useState<SystemConfigItem[]>(initialConfigs);
@@ -20,6 +69,8 @@ export function ConfigManager({ initialConfigs }: ConfigManagerProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const valueInputRef = useRef<HTMLInputElement>(null);
 
   const searchId = useId();
   const keyFieldId = useId();
@@ -40,6 +91,18 @@ export function ConfigManager({ initialConfigs }: ConfigManagerProps) {
     setDescriptionInput(config.description ?? "");
     setError(null);
     setSuccessMsg(null);
+    requestAnimationFrame(() => valueInputRef.current?.focus());
+  };
+
+  const handleApplyPreset = (preset: RecommendedConfigPreset) => {
+    const existing = configs.find((c) => c.key === preset.key);
+    setEditingKey(existing ? existing.key : null);
+    setKeyInput(preset.key);
+    setValueInput(existing ? existing.value : preset.defaultValue);
+    setDescriptionInput(existing?.description ?? preset.description);
+    setError(null);
+    setSuccessMsg(null);
+    requestAnimationFrame(() => valueInputRef.current?.focus());
   };
 
   const handleCancel = () => {
@@ -87,9 +150,59 @@ export function ConfigManager({ initialConfigs }: ConfigManagerProps) {
           Konfigurasi Sistem (System Config)
         </h1>
         <p className="text-sm text-slate-400">
-          Kelola parameter global sistem seperti divisor volumetrik dan aturan
-          operasional.
+          Kelola parameter global sistem seperti divisor volumetrik, identitas
+          perusahaan, dan kontak cabang Bali ⇄ Surabaya.
         </p>
+      </div>
+
+      {/* Quick Setup Parameter Operasional Utama */}
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-white">
+            Parameter Operasional Utama
+          </h2>
+          <p className="text-xs text-slate-400">
+            Klik salah satu kartu di bawah untuk mengatur nilai parameter yang
+            digunakan pada kalkulator tarif, resi, dan halaman publik.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+          {RECOMMENDED_CONFIGS.map((preset) => {
+            const existing = configs.find((c) => c.key === preset.key);
+            return (
+              <button
+                key={preset.key}
+                type="button"
+                onClick={() => handleApplyPreset(preset)}
+                className="flex flex-col justify-between rounded-lg border border-slate-800 bg-slate-950/80 p-3 text-left transition hover:border-blue-600/70 hover:bg-slate-950"
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-slate-200">
+                      {preset.label}
+                    </span>
+                    {existing ? (
+                      <span className="rounded-full border border-emerald-800/70 bg-emerald-950/80 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-300">
+                        Tersimpan
+                      </span>
+                    ) : (
+                      <span className="rounded-full border border-amber-800/70 bg-amber-950/80 px-2 py-0.5 font-mono text-[10px] font-semibold text-amber-300">
+                        Default
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 truncate font-mono text-[11px] text-blue-400">
+                    {existing ? existing.value : preset.defaultValue}
+                  </div>
+                </div>
+                <div className="mt-2 font-mono text-[10px] text-slate-500">
+                  {preset.key}
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {error && (
@@ -105,10 +218,10 @@ export function ConfigManager({ initialConfigs }: ConfigManagerProps) {
 
       {/* Form Tambah / Edit */}
       <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-xl">
-        <h2 className="text-sm font-semibold text-white mb-3">
+        <h2 className="mb-3 text-sm font-semibold text-white">
           {editingKey
             ? `Edit Parameter: ${editingKey}`
-            : "Tambah Parameter Baru"}
+            : "Tambah / Atur Parameter"}
         </h2>
         <form
           onSubmit={handleSubmit}
@@ -117,7 +230,7 @@ export function ConfigManager({ initialConfigs }: ConfigManagerProps) {
           <div>
             <label
               htmlFor={keyFieldId}
-              className="block text-xs font-medium text-slate-400 mb-1"
+              className="mb-1 block text-xs font-medium text-slate-400"
             >
               Key (UPPER_SNAKE)
             </label>
@@ -129,17 +242,18 @@ export function ConfigManager({ initialConfigs }: ConfigManagerProps) {
               disabled={!!editingKey}
               placeholder="CONTOH_KEY"
               required
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white uppercase placeholder-slate-600 disabled:opacity-50"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs uppercase text-white placeholder-slate-600 disabled:opacity-50"
             />
           </div>
           <div>
             <label
               htmlFor={valueFieldId}
-              className="block text-xs font-medium text-slate-400 mb-1"
+              className="mb-1 block text-xs font-medium text-slate-400"
             >
               Nilai (Value)
             </label>
             <input
+              ref={valueInputRef}
               id={valueFieldId}
               type="text"
               value={valueInput}
@@ -152,7 +266,7 @@ export function ConfigManager({ initialConfigs }: ConfigManagerProps) {
           <div>
             <label
               htmlFor={descFieldId}
-              className="block text-xs font-medium text-slate-400 mb-1"
+              className="mb-1 block text-xs font-medium text-slate-400"
             >
               Deskripsi
             </label>
@@ -165,7 +279,7 @@ export function ConfigManager({ initialConfigs }: ConfigManagerProps) {
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white placeholder-slate-600"
             />
           </div>
-          <div className="sm:col-span-3 flex justify-end gap-2">
+          <div className="flex justify-end gap-2 sm:col-span-3">
             {editingKey && (
               <button
                 type="button"
@@ -184,15 +298,15 @@ export function ConfigManager({ initialConfigs }: ConfigManagerProps) {
                 ? "Menyimpan..."
                 : editingKey
                   ? "Simpan Perubahan"
-                  : "Tambah Parameter"}
+                  : "Simpan Parameter"}
             </button>
           </div>
         </form>
       </div>
 
       {/* Tabel Daftar Konfigurasi */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900 shadow-xl overflow-hidden">
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+      <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-800 p-4">
           <div className="w-full sm:w-80">
             <label htmlFor={searchId} className="sr-only">
               Cari Konfigurasi
@@ -210,7 +324,7 @@ export function ConfigManager({ initialConfigs }: ConfigManagerProps) {
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs text-slate-300">
-            <thead className="bg-slate-950 uppercase tracking-wider text-slate-400 border-b border-slate-800">
+            <thead className="border-b border-slate-800 bg-slate-950 uppercase tracking-wider text-slate-400">
               <tr>
                 <th scope="col" className="px-6 py-3">
                   Key Konfigurasi

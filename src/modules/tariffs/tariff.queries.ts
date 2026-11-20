@@ -27,6 +27,13 @@ export interface TariffReferenceItem {
   updated_at: Date;
 }
 
+export interface WarehouseCityOption {
+  id: string;
+  code: string;
+  name: string;
+  city: string;
+}
+
 export async function getPricingTypes(): Promise<PricingTypeItem[]> {
   await requirePermission("master:read");
 
@@ -60,4 +67,21 @@ export async function getTariffReferences(): Promise<TariffReferenceItem[]> {
         }
       : undefined,
   }));
+}
+
+export async function getActiveWarehouseOptions(): Promise<
+  WarehouseCityOption[]
+> {
+  await requirePermission("master:read");
+
+  return prisma.warehouse.findMany({
+    where: { is_active: true },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      city: true,
+    },
+  });
 }
