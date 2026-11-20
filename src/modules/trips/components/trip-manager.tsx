@@ -272,3 +272,4 @@ export function TripManager({ initialTrips, formOptions }: TripManagerProps) {
     </div>
   );
 }
+
