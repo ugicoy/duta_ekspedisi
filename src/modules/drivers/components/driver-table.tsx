@@ -14,7 +14,6 @@ export function DriverTable({
   initialDrivers,
   availableUsers,
 }: DriverTableProps) {
-  const [drivers] = useState<DriverItem[]>(initialDrivers);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
 
@@ -27,7 +26,7 @@ export function DriverTable({
   const searchId = useId();
   const statusId = useId();
 
-  const filteredDrivers = drivers.filter((driver) => {
+  const filteredDrivers = initialDrivers.filter((driver) => {
     const matchesSearch =
       driver.driver_code.toLowerCase().includes(searchQuery.toLowerCase()) ||
       driver.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
