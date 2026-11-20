@@ -1,7 +1,5 @@
 "use server";
 
-"use server";
-
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -22,6 +20,8 @@ export async function loginAction(
   if (!username || !password) {
     return { error: "Username dan password wajib diisi." };
   }
+
+  let redirectPath = "/dashboard";
 
   try {
     const user = await prisma.user.findUnique({
@@ -110,7 +110,7 @@ export async function loginAction(
       !sessionPayload.roles.includes("ADMIN") &&
       !sessionPayload.roles.includes("WAREHOUSE_STAFF");
 
-    redirect(isDriverOnly ? "/driver" : "/dashboard");
+    redirectPath = isDriverOnly ? "/driver" : "/dashboard";
 
     await createSession(sessionPayload);
   } catch (err: unknown) {
@@ -118,7 +118,7 @@ export async function loginAction(
     return { error: "Terjadi kesalahan sistem saat proses login." };
   }
 
-  redirect("/dashboard");
+  redirect(redirectPath);
 }
 
 export async function logoutAction(): Promise<void> {
